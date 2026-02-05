@@ -5,8 +5,8 @@ A high-performance React component capable of detecting and scanning **multiple 
 This library is perfect for high-throughput scenarios like event check-ins, ticketing, or warehouse logistics where multiple codes need to be scanned efficiently.
 
 ![License](https://img.shields.io/npm/l/multi-qr-scanner-poc)
-[![GitHub](https://img.shields.io/badge/GitHub-Repository-181717?logo=github)](https://github.com/YOUR_USERNAME/YOUR_REPO)
-[![Demo](https://img.shields.io/badge/Live-Demo-blue?logo=vercel)](https://YOUR_DEMO_URL.vercel.app)
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-181717?logo=github)](https://github.com/htsang1904/multi-qr)
+[![Demo](https://img.shields.io/badge/Live-Demo-blue?logo=vercel)](https://htsang1904.github.io/multi-qr/)
 
 
 ## Features
