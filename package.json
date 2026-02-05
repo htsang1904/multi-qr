@@ -2,6 +2,14 @@
   "name": "multi-qr-scanner-poc",
   "private": false,
   "version": "0.0.2",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/htsang1904/multi-qr.git"
+  },
+  "homepage": "https://htsang1904.github.io/multi-qr/",
+  "bugs": {
+    "url": "https://github.com/htsang1904/multi-qr/issues"
+  },
   "type": "module",
   "main": "./dist/multi-qr-scanner.umd.cjs",
   "module": "./dist/multi-qr-scanner.js",
