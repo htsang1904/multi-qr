@@ -7,7 +7,7 @@ import dts from 'vite-plugin-dts'; // Suggesting usage of dts plugin for types
 export default defineConfig({
     plugins: [
         react(),
-        dts({ insertTypesEntry: true }), // Uncomment if vite-plugin-dts is installed
+        dts({ insertTypesEntry: true, tsconfigPath: './tsconfig.app.json' }), // Uncomment if vite-plugin-dts is installed
     ],
     build: {
         lib: {

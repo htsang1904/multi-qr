@@ -24,7 +24,32 @@ Sau khi chạy xong, thư mục `dist` sẽ được tạo ra chứa:
 *   `multi-qr-scanner.umd.cjs` (cho dự án cũ dùng CommonJS).
 *   Các file `.d.ts` (để hỗ trợ gợi ý code TypeScript).
 
-## 3. Cách Tích Hợp Vào Dự Án Khác
+## 3. Tùy chỉnh Giao diện (Customization)
+
+`MultiQRScanner` hỗ trợ nhiều thuộc tính (props) để bạn có thể tùy chỉnh giao diện theo ý muốn:
+
+| Prop | Type | Default | Mô tả |
+| :--- | :--- | :--- | :--- |
+| `title` | `string` | `"ĐƯA MÃ QR CODE..."` | Tiêu đề hiển thị phía trên khu vực quét. |
+| `showFrame` | `boolean` | `true` | Hiển thị khung (4 góc) của khu vực quét. |
+| `showScanLine` | `boolean` | `true` | Hiển thị đường quét chạy lên xuống. |
+| `scanLineColor` | `string` | `"#FFFFFF"` | Màu sắc của đường quét. |
+| `frameColor` | `string` | `"#FFFFFF"` | Màu sắc của khung quét. |
+| `overlayColor` | `string` | `"rgba(0,0,0,0.5)"` | Màu của vùng làm mờ xung quanh vùng quét. |
+| `containerStyle` | `CSSProperties` | `undefined` | Style CSS cho toàn bộ container. |
+| `children` | `ReactNode` | `undefined` | Chèn thêm nội dung UI tùy chỉnh đè lên camera. |
+
+Ví dụ sử dụng:
+```tsx
+<MultiQRScanner
+  title="VUI LÒNG QUÉT MÃ TẠI ĐÂY"
+  frameColor="#00ff00"
+  scanLineColor="#00ff00"
+  overlayColor="rgba(0, 0, 0, 0.8)"
+/>
+```
+
+## 4. Cách Tích Hợp Vào Dự Án Khác
 
 ### Cách 1: Copy thủ công (Nhanh nhất cho nội bộ)
 1.  Copy thư mục `dist` sang dự án mới của bạn.
