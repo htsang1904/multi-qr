@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useRef, useMemo, memo } from 'react';
 import { useMultiQRScanner } from '../hooks/useMultiQRScanner';
 import type { DetectedBarcode } from '../hooks/useMultiQRScanner';
 export type { DetectedBarcode };
@@ -29,6 +29,7 @@ export interface MultiQRScannerProps {
     onTorchAvailable?: (available: boolean) => void;
     scanRegion?: { x: number; y: number; width: number; height: number }; // Percentage (0-100)
     renderDetectedCode?: (barcode: DetectedBarcode, status?: ScanStatus) => React.ReactNode;
+    fps?: number; // New: Frames per second control
 }
 
 const MultiQRScanner: React.FC<MultiQRScannerProps> = ({
@@ -52,7 +53,8 @@ const MultiQRScanner: React.FC<MultiQRScannerProps> = ({
     torch = false,
     onTorchAvailable,
     scanRegion,
-    renderDetectedCode
+    renderDetectedCode,
+    fps
 }) => {
     const {
         videoRef,
@@ -64,7 +66,9 @@ const MultiQRScanner: React.FC<MultiQRScannerProps> = ({
         isEnabled,
         scanInterval,
         facingMode,
+        fps,
         onCodesDetected: (codes: DetectedBarcode[]) => {
+            let processedCodes = codes;
             // Filter by scanRegion if provided
             if (scanRegion && videoRef.current) {
                 const video = videoRef.current;
@@ -73,7 +77,7 @@ const MultiQRScanner: React.FC<MultiQRScannerProps> = ({
                 const roiW = (scanRegion.width / 100) * video.videoWidth;
                 const roiH = (scanRegion.height / 100) * video.videoHeight;
 
-                const filteredCodes = codes.filter((code: DetectedBarcode) => {
+                processedCodes = codes.filter((code: DetectedBarcode) => {
                     const box = code.boundingBox;
                     return (
                         box.x >= roiX &&
@@ -82,16 +86,13 @@ const MultiQRScanner: React.FC<MultiQRScannerProps> = ({
                         box.y + box.height <= roiY + roiH
                     );
                 });
-                onCodesDetected(filteredCodes);
-                drawOverlay(filteredCodes);
-            } else {
-                onCodesDetected(codes);
-                drawOverlay(codes);
             }
+
+            // Just update data refs/state. Drawing is decoupled.
+            activeBarcodesRef.current = processedCodes;
+            onCodesDetected(processedCodes);
         }
     });
-
-    const canvasRef = useRef<HTMLCanvasElement>(null);
 
     const colors = useMemo(() => ({
         pending: '#FFFFFF',
@@ -100,6 +101,9 @@ const MultiQRScanner: React.FC<MultiQRScannerProps> = ({
         error: '#FF0000',
         ...statusColors
     }), [statusColors]);
+
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const activeBarcodesRef = useRef<DetectedBarcode[]>([]);
 
     useEffect(() => {
         if (onTorchAvailable) onTorchAvailable(isTorchAvailable);
@@ -110,6 +114,32 @@ const MultiQRScanner: React.FC<MultiQRScannerProps> = ({
             toggleTorch();
         }
     }, [torch, isTorchOn, toggleTorch]);
+
+    // Clear barcodes when disabled or unmounting
+    useEffect(() => {
+        if (!isEnabled) {
+            activeBarcodesRef.current = [];
+            drawOverlay([]);
+        }
+    }, [isEnabled]);
+
+    // High-frequency UI drawing loop (60fps) decoupled from detection
+    useEffect(() => {
+        let rafId: number;
+
+        const render = () => {
+            if (isEnabled) {
+                drawOverlay(activeBarcodesRef.current);
+            }
+            rafId = requestAnimationFrame(render);
+        };
+
+        rafId = requestAnimationFrame(render);
+        return () => {
+            cancelAnimationFrame(rafId);
+            activeBarcodesRef.current = []; // Safety cleanup
+        };
+    }, [isEnabled, codeStatuses, statusColors]);
 
     const drawOverlay = (barcodes: DetectedBarcode[]) => {
         const video = videoRef.current;
@@ -126,13 +156,11 @@ const MultiQRScanner: React.FC<MultiQRScannerProps> = ({
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // If custom renderer is provided, we might still want to draw the polygon 
-        // but not the label, or skip drawing entirely and let children handle it.
         barcodes.forEach(barcode => {
             const status = codeStatuses.get(barcode.rawValue);
             const color = (status && colors[status as ScanStatus]) ? colors[status as ScanStatus] : colors.pending;
 
-            // Always draw the detection border
+            // 1. Draw Corners (Professional Industrial Look)
             ctx.beginPath();
             barcode.cornerPoints.forEach((point, index) => {
                 if (index === 0) ctx.moveTo(point.x, point.y);
@@ -143,13 +171,40 @@ const MultiQRScanner: React.FC<MultiQRScannerProps> = ({
             ctx.strokeStyle = color;
             ctx.stroke();
 
-            // Only draw label if NO custom renderer is provided
-            if (!renderDetectedCode) {
-                const firstPoint = barcode.cornerPoints[0];
-                const statusText = status ? `[${status.toUpperCase()}]` : '[NEW]';
-                ctx.font = 'bold 16px Arial';
-                ctx.fillStyle = color;
-                ctx.fillText(`${barcode.rawValue} ${statusText}`, firstPoint.x, firstPoint.y - 10);
+            // 2. Draw Mini HUD Badge (Canvas-based to avoid DOM lag)
+            const firstPoint = barcode.cornerPoints[0];
+            const padding = 8;
+            const text = barcode.rawValue.substring(0, 10) + "...";
+            ctx.font = '12px "JetBrains Mono", monospace';
+            const metrics = ctx.measureText(text);
+            const badgeWidth = metrics.width + padding * 2;
+            const badgeHeight = 22;
+
+            // Badge Background (Glassmorphism effect in Canvas)
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.beginPath();
+            ctx.roundRect(firstPoint.x, firstPoint.y - badgeHeight - 10, badgeWidth, badgeHeight, 6);
+            ctx.fill();
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = color;
+            ctx.stroke();
+
+            // Badge Text
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillText(text, firstPoint.x + padding, firstPoint.y - badgeHeight + 5);
+
+            // Status Indicator Dot
+            if (status === 'success') {
+                ctx.fillStyle = '#00FF00';
+                ctx.beginPath();
+                ctx.arc(firstPoint.x + badgeWidth - 8, firstPoint.y - badgeHeight / 2 - 10, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // 3. Custom Renderer (Slot)
+            if (renderDetectedCode) {
+                // If the user wants to supplement canvas with DOM overlays,
+                // they can still pass children or use this hook.
             }
         });
     };
@@ -236,11 +291,30 @@ const MultiQRScanner: React.FC<MultiQRScannerProps> = ({
                         position: absolute;
                         left: 0;
                         right: 0;
-                        height: 2px;
-                        background: ${scanLineColor};
-                        box-shadow: 0 0 8px ${scanLineColor};
-                        animation: scan 3s linear infinite;
-                        opacity: 0.8;
+                        height: 3px;
+                        background: linear-gradient(
+                            to right,
+                            transparent,
+                            ${scanLineColor} 10%,
+                            ${scanLineColor} 90%,
+                            transparent
+                        );
+                        box-shadow: 
+                            0 0 15px ${scanLineColor},
+                            0 0 30px ${scanLineColor}88;
+                        animation: scan 3s ease-in-out infinite;
+                        opacity: 0.9;
+                        z-index: 15;
+                    }
+                    .scan-line::after {
+                        content: '';
+                        position: absolute;
+                        top: -10px;
+                        left: 0;
+                        right: 0;
+                        height: 20px;
+                        background: linear-gradient(to bottom, transparent, ${scanLineColor}22, transparent);
+                        pointer-events: none;
                     }
                     .scanner-title {
                         position: absolute;
@@ -352,4 +426,4 @@ const MultiQRScanner: React.FC<MultiQRScannerProps> = ({
     );
 };
 
-export default MultiQRScanner;
+export default memo(MultiQRScanner);

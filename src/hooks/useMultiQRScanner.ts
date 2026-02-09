@@ -19,6 +19,7 @@ export interface DetectedBarcode {
 export interface UseMultiQRScannerOptions {
     isEnabled?: boolean;
     scanInterval?: number;
+    fps?: number; // New: Frames per second control
     facingMode?: 'user' | 'environment';
     onCodesDetected?: (codes: DetectedBarcode[]) => void;
 }
@@ -26,9 +27,12 @@ export interface UseMultiQRScannerOptions {
 export const useMultiQRScanner = ({
     isEnabled = true,
     scanInterval = 600,
+    fps,
     facingMode = 'environment',
     onCodesDetected
 }: UseMultiQRScannerOptions = {}) => {
+    // Calculate final interval from FPS if provided, ensuring a safe minimum of 40ms (~25 FPS)
+    const effectiveInterval = fps ? Math.max(40, 1000 / fps) : scanInterval;
     const videoRef = useRef<HTMLVideoElement>(null);
     const [isSupported, setIsSupported] = useState<boolean>(true);
     const [error, setError] = useState<string>('');
@@ -78,6 +82,11 @@ export const useMultiQRScanner = ({
         };
     }, [facingMode]);
 
+    const onCodesDetectedRef = useRef(onCodesDetected);
+    useEffect(() => {
+        onCodesDetectedRef.current = onCodesDetected;
+    }, [onCodesDetected]);
+
     // Barcode Detection Loop
     useEffect(() => {
         if (!isSupported || !videoRef.current) return;
@@ -85,23 +94,29 @@ export const useMultiQRScanner = ({
         const barcodeDetector = new BarcodeDetectorClass({ formats: ['qr_code'] });
         let animationFrameId: number;
         let lastDetectTime = 0;
+        let isDetecting = false;
 
-        const detectCodes = async (timestamp: number) => {
+        const detectCodes = async () => {
             if (!isEnabled) {
                 animationFrameId = requestAnimationFrame(detectCodes);
                 return;
             }
 
-            if (videoRef.current && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
-                if (timestamp - lastDetectTime >= scanInterval) {
-                    lastDetectTime = timestamp;
+            const now = performance.now();
+            if (!isDetecting && now - lastDetectTime >= effectiveInterval) {
+                const video = videoRef.current;
+                if (video && video.readyState === video.HAVE_ENOUGH_DATA) {
+                    lastDetectTime = now;
+                    isDetecting = true;
                     try {
-                        const barcodes = await barcodeDetector.detect(videoRef.current);
-                        if (onCodesDetected) {
-                            onCodesDetected(barcodes);
+                        const barcodes = await barcodeDetector.detect(video);
+                        if (onCodesDetectedRef.current) {
+                            onCodesDetectedRef.current(barcodes);
                         }
                     } catch (err) {
                         console.error('Barcode detection error:', err);
+                    } finally {
+                        isDetecting = false;
                     }
                 }
             }
@@ -110,8 +125,10 @@ export const useMultiQRScanner = ({
 
         animationFrameId = requestAnimationFrame(detectCodes);
 
-        return () => cancelAnimationFrame(animationFrameId);
-    }, [isSupported, scanInterval, isEnabled, onCodesDetected]);
+        return () => {
+            cancelAnimationFrame(animationFrameId);
+        };
+    }, [isSupported, effectiveInterval, isEnabled]); // onCodesDetected removed from deps
 
     const toggleTorch = useCallback(async () => {
         if (!activeStream || !isTorchAvailable) return;

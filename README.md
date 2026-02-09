@@ -11,7 +11,9 @@ A high-performance, **industrial-grade** React library for simultaneous multi-ba
 
 ## 🔥 Key Strengths
 
-*   **⚡ Quantum Speed**: Detection intervals as low as 150ms with sub-10ms latency (on supported hardware).
+*   **⚡ Zero-Lag Engine**: Canvas-based HUD rendering eliminates DOM overhead for 60FPS fluid tracking.
+*   **📡 HD Distance Scanning**: Restored 720p resolution for superior long-range QR detection.
+*   **🔄 Stabilized Lifecycle**: Bulletproof hook logic prevents engine restarts during React re-renders.
 *   **🎯 Multi-Target Precision**: Track 15+ QR codes in a single frame without jitter.
 *   **🏗️ Headless Architecture**: Use our core logic via `useMultiQRScanner` and build whatever UI you imagine.
 *   **🕯️ Hardware-First**: Programmatic control over **Torch (Flash)** and real-time hardware status detection.
@@ -115,13 +117,30 @@ function ProfessionalScanner() {
 | `torch` | `boolean` | `false` | Turn on/off device flash (if available). |
 | `scanRegion` | `{x, y, btnWidth, height}` | `undefined` | Define a % based Region of Interest (0-100). |
 | `codeStatuses` | `Map<string, ScanStatus>` | `new Map()` | Map of values to status (`'processing' \| 'success' \| 'error'`). |
-| `renderDetectedCode` | `(code: DetectedBarcode) => ReactNode` | `undefined` | Custom label renderer. |
-| `showCorners` | `boolean` | `true` | Show/hide the standard scanning frame. |
+| `renderDetectedCode` | `(code: DetectedBarcode) => ReactNode` | `undefined` | Custom label renderer for DOM-based overlays. |
+| `showCorners` | `boolean` | `true` | Show/hide the high-fidelity laser scanning frame. |
+| `fps` | `number` | `25` | Frames per second for the detection engine (1-30). |
 
 ### `ScanStatus` Types
 - `processing`: Yellow border. Useful for "Checking database..." states.
 - `success`: Green border. For confirmed scans.
 - `error`: Red border. For invalid codes.
+
+---
+
+## ⚡ Performance Optimization (FPS Control)
+
+The library provides a native `fps` prop to prevent device lag. Adjust this based on your target device's power.
+
+- **Fastest (20 - 30 FPS)**: Ultra-fluid, best for industrial multi-scan (High CPU).
+- **Stable (10 - 15 FPS)**: Recommended for most consumer-facing apps.
+- **Eco (1 - 5 FPS)**: Best for battery saving or static scanning.
+
+```tsx
+<MultiQRScanner 
+  fps={10} // Optimal balance
+/>
+```
 
 ---
 
