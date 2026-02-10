@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug QR Scanner</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            color: white;
+            font-family: monospace;
+        }
+        #video {
+            width: 100%;
+            max-width: 640px;
+            border: 2px solid #00ff00;
+        }
+        #logs {
+            margin-top: 20px;
+            padding: 10px;
+            background: #000;
+            border: 1px solid #333;
+            max-height: 300px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px 5px;
+        }
+        .log-info { color: #00ff00; }
+        .log-error { color: #ff0000; }
+        .log-warn { color: #ffaa00; }
+    </style>
+</head>
+<body>
+    <h1>🔍 QR Scanner Debug Test</h1>
+    <video id="video" autoplay playsinline muted></video>
+    <div id="logs"></div>
+
+    <script type="module">
+        const logsDiv = document.getElementById('logs');
+        const video = document.getElementById('video');
+
+        function log(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logsDiv.appendChild(entry);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+            console.log(message);
+        }
+
+        // Override console methods to capture logs
+        const originalLog = console.log;
+        const originalError = console.error;
+        const originalWarn = console.warn;
+
+        console.log = (...args) => {
+            originalLog(...args);
+            log(args.join(' '), 'info');
+        };
+
+        console.error = (...args) => {
+            originalError(...args);
+            log(args.join(' '), 'error');
+        };
+
+        console.warn = (...args) => {
+            originalWarn(...args);
+            log(args.join(' '), 'warn');
+        };
+
+        async function testCamera() {
+            try {
+                log('🎬 Starting camera test...');
+                
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                });
+
+                log('✅ Camera stream obtained: ' + stream.getVideoTracks()[0].label);
+                
+                video.srcObject = stream;
+                log('🎥 Video srcObject set');
+
+                video.onloadedmetadata = () => {
+                    log(`📹 Video metadata loaded: ${video.videoWidth}x${video.videoHeight}`);
+                };
+
+                video.onplay = () => {
+                    log('▶️ Video is playing');
+                };
+
+                await video.play();
+                log('✅ Video play() called successfully');
+
+                // Test BarcodeDetector
+                log('🔍 Testing BarcodeDetector...');
+                
+                if ('BarcodeDetector' in window) {
+                    log('✅ Native BarcodeDetector available');
+                    const detector = new BarcodeDetector({ formats: ['qr_code'] });
+                    log('✅ BarcodeDetector instance created');
+                    
+                    // Start detection loop
+                    let frameCount = 0;
+                    const detect = async () => {
+                        if (video.readyState >= 2 && video.videoWidth > 0) {
+                            frameCount++;
+                            if (frameCount === 1) {
+                                log(`🎬 First detection frame: ${video.videoWidth}x${video.videoHeight}, readyState: ${video.readyState}`);
+                            }
+                            
+                            try {
+                                const barcodes = await detector.detect(video);
+                                if (barcodes.length > 0) {
+                                    log('🎯 QR Codes detected: ' + barcodes.map(b => b.rawValue).join(', '));
+                                }
+                            } catch (err) {
+                                log('❌ Detection error: ' + err.message, 'error');
+                            }
+                        } else if (frameCount % 60 === 0) {
+                            log(`⏳ Waiting for video... readyState: ${video.readyState}, size: ${video.videoWidth}x${video.videoHeight}`);
+                        }
+                        
+                        requestAnimationFrame(detect);
+                    };
+                    
+                    requestAnimationFrame(detect);
+                } else {
+                    log('⚠️ Native BarcodeDetector NOT available - need polyfill', 'warn');
+                    log('🔄 Loading polyfill...');
+                    
+                    // Dynamically import polyfill
+                    const { BarcodeDetectorPolyfill } = await import('https://cdn.jsdelivr.net/npm/@undecaf/barcode-detector-polyfill@0.9.23/dist/index.js');
+                    log('✅ Polyfill loaded');
+                    
+                    BarcodeDetectorPolyfill.engine = 'zbar';
+                    BarcodeDetectorPolyfill.zbarWasmPath = 'https://cdn.jsdelivr.net/npm/@undecaf/zbar-wasm@0.9.16/dist/zbar.wasm';
+                    
+                    const detector = new BarcodeDetectorPolyfill({ formats: ['qr_code'] });
+                    log('✅ Polyfill BarcodeDetector instance created');
+                    
+                    // Start detection loop
+                    let frameCount = 0;
+                    const detect = async () => {
+                        if (video.readyState >= 2 && video.videoWidth > 0) {
+                            frameCount++;
+                            if (frameCount === 1) {
+                                log(`🎬 First detection frame: ${video.videoWidth}x${video.videoHeight}, readyState: ${video.readyState}`);
+                            }
+                            
+                            try {
+                                const barcodes = await detector.detect(video);
+                                if (barcodes.length > 0) {
+                                    log('🎯 QR Codes detected: ' + barcodes.map(b => b.rawValue).join(', '));
+                                }
+                            } catch (err) {
+                                log('❌ Detection error: ' + err.message, 'error');
+                            }
+                        } else if (frameCount % 60 === 0) {
+                            log(`⏳ Waiting for video... readyState: ${video.readyState}, size: ${video.videoWidth}x${video.videoHeight}`);
+                        }
+                        
+                        requestAnimationFrame(detect);
+                    };
+                    
+                    requestAnimationFrame(detect);
+                }
+
+            } catch (err) {
+                log('❌ Camera error: ' + err.message, 'error');
+                log('Stack: ' + err.stack, 'error');
+            }
+        }
+
+        // Start test
+        testCamera();
+    </script>
+</body>
+</html>

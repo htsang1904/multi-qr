@@ -30,6 +30,11 @@ A high-performance, **industrial-grade** React library for simultaneous multi-ba
 npm install multi-qr-scanner-poc
 ```
 
+**Requirements:**
+- React 18.x or 19.x
+- Modern browser with camera support
+- HTTPS context (required for camera access, except `localhost`)
+
 ---
 
 ## 🚀 Quick Start (Component Mode)
@@ -47,7 +52,7 @@ function App() {
     codes.forEach(code => {
       console.log('Found:', code.rawValue);
       // Optional: Set status to 'processing' while calling your API
-      // setCodeStatuses(prev => new Map(prev).set(code.rawValue, 'processing'));
+      setCodeStatuses(prev => new Map(prev).set(code.rawValue, 'processing'));
     });
   };
 
@@ -55,10 +60,10 @@ function App() {
     <div style={{ height: '100vh', width: '100vw' }}>
       <MultiQRScanner
         onCodesDetected={handleDetected}
-        codeStatuses={codeStatuses} // Optional: Tracks 'success'/'error' colors
-        fps={15}                    // Optional: Control CPU usage
-        isEnabled={true}            // Optional: Toggle engine on/off
-        facingMode="environment"    // Optional: 'user' or 'environment'
+        codeStatuses={codeStatuses}
+        fps={15}
+        isEnabled={true}
+        facingMode="environment"
       />
     </div>
   );
@@ -83,7 +88,7 @@ function CustomScanner() {
     error 
   } = useMultiQRScanner({
     isEnabled: true,
-    scanInterval: 150,
+    fps: 15,
     facingMode: 'environment',
     onCodesDetected: (codes) => {
       console.log("Detected codes:", codes);
@@ -138,18 +143,195 @@ function CustomScanner() {
 
 ---
 
+## 🚨 Troubleshooting: "Không quét được mã" (Detection Not Working)
+
+### ✅ Step 1: Verify Installation
+```bash
+npm list multi-qr-scanner-poc
+```
+**Expected:** `multi-qr-scanner-poc@1.0.6` or higher.
+
+**If outdated:**
+```bash
+npm install multi-qr-scanner-poc@latest
+rm -rf node_modules/.vite  # Clear Vite cache
+```
+
+---
+
+### ✅ Step 2: Check Camera Initialization
+
+Add this debug callback to verify camera is working:
+
+```tsx
+<MultiQRScanner
+  onCodesDetected={handleDetected}
+  onTorchAvailable={(available) => {
+    console.log('🎥 Camera initialized:', available);
+  }}
+  // ... other props
+/>
+```
+
+**Expected Console Output:**
+```
+🎥 Camera initialized: true  (or false if no torch)
+```
+
+**If you DON'T see this log:**
+- Camera permission was denied
+- Another app/tab is using the camera
+- Browser doesn't support `getUserMedia`
+
+---
+
+### ✅ Step 3: Verify Video Element is Visible
+
+Add this to your `onCodesDetected`:
+
+```tsx
+const handleDetected = (codes) => {
+  const video = document.querySelector('video');
+  console.log('📹 Video state:', {
+    width: video?.videoWidth,
+    height: video?.videoHeight,
+    readyState: video?.readyState
+  });
+  console.log('🔍 Codes detected:', codes.length);
+};
+```
+
+**Expected Output:**
+```
+📹 Video state: { width: 1280, height: 720, readyState: 4 }
+```
+
+**If `width: 0` or `height: 0`:**
+- CSS is hiding the video element
+- Video stream hasn't loaded yet
+- Check your `containerStyle` and `style` props
+
+---
+
+### ✅ Step 4: Check for WASM Loading Errors
+
+Open **DevTools → Console**, look for errors containing:
+- `zbar.wasm`
+- `BarcodeDetector`
+- `Failed to load`
+
+**If you see WASM 404 errors:**
+
+Add this to your `vite.config.ts`:
+
+```ts
+export default defineConfig({
+  assetsInclude: ['**/*.wasm'],
+  optimizeDeps: {
+    exclude: ['@undecaf/barcode-detector-polyfill', '@undecaf/zbar-wasm']
+  }
+});
+```
+
+---
+
+### ✅ Step 5: Common Mistakes to Avoid
+
+#### ❌ DON'T use `key={facingMode}`
+```tsx
+// ❌ WRONG - This forces unmount/remount
+<MultiQRScanner key={facingMode} facingMode={facingMode} />
+
+// ✅ CORRECT - Library handles camera switching internally
+<MultiQRScanner facingMode={facingMode} />
+```
+
+#### ❌ DON'T call `getUserMedia` before mounting Scanner
+```tsx
+// ❌ WRONG - Conflicts with Scanner's camera access
+useEffect(() => {
+  navigator.mediaDevices.getUserMedia({ video: true })
+    .then(stream => stream.getTracks().forEach(t => t.stop()));
+}, []);
+
+// ✅ CORRECT - Let Scanner handle camera
+useEffect(() => {
+  // Just mount the Scanner component
+}, []);
+```
+
+#### ❌ DON'T set `isEnabled={false}` on mount
+```tsx
+// ❌ WRONG - Scanner won't start
+const [enabled, setEnabled] = useState(false);
+
+// ✅ CORRECT - Start enabled
+const [enabled, setEnabled] = useState(true);
+```
+
+---
+
+### ✅ Step 6: Test with Minimal Example
+
+Create a new file `TestScanner.tsx`:
+
+```tsx
+import MultiQRScanner from 'multi-qr-scanner-poc';
+
+export default function TestScanner() {
+  return (
+    <div style={{ width: '100vw', height: '100vh' }}>
+      <MultiQRScanner
+        onCodesDetected={(codes) => {
+          console.log('✅ DETECTED:', codes.map(c => c.rawValue));
+        }}
+        fps={15}
+      />
+    </div>
+  );
+}
+```
+
+**If this works but your main app doesn't:**
+- There's a conflict with your app's CSS/layout
+- Another component is interfering with camera access
+- Check your routing/navigation logic
+
+---
+
 ## 🎯 Best Practices & Performance
 
-### 1. Avoid `key={facingMode}`
-The library handles camera switching internally. Adding a `key` prop that changes with camera mode will force a hard unmount/remount, which can cause race conditions in hardware access on some mobile browsers.
-
-### 2. FPS Control
+### 1. FPS Control
 *   **Fastest (20 - 30 FPS)**: Best for industrial multi-scan usage (High CPU).
-*   **Stable (10 - 15 FPS)**: Recommended for most consumer-facing apps.
+*   **Stable (10 - 15 FPS)**: ⭐ **Recommended** for most consumer-facing apps.
 *   **Eco (1 - 5 FPS)**: Best for battery saving.
 
-### 3. Handle Navigation
-When navigating away from the scanner page, ensure you set `isEnabled={false}` or simply unmount the component. The library (v1.0.4+) will automatically release the camera hardware.
+### 2. Handle Navigation Properly
+When navigating away from the scanner page, ensure you set `isEnabled={false}` or simply unmount the component. The library (v1.0.6+) will automatically release the camera hardware.
+
+```tsx
+const handleBackButton = () => {
+  setIsEnabled(false);  // Stop camera
+  navigate(-1);         // Then navigate
+};
+```
+
+### 3. Manage Detection State
+Prevent duplicate API calls by tracking processed codes:
+
+```tsx
+const processedRef = useRef(new Set());
+
+const handleDetected = (codes) => {
+  codes.forEach(code => {
+    if (!processedRef.current.has(code.rawValue)) {
+      processedRef.current.add(code.rawValue);
+      // Call your API here
+      checkInUser(code.rawValue);
+    }
+  });
+};
+```
 
 ---
 
@@ -157,8 +339,23 @@ When navigating away from the scanner page, ensure you set `isEnabled={false}` o
 
 - **Requirements**: Camera access requires an **HTTPS** context (except `localhost`).
 - **Engines**: 
-  - **Native**: Chromium-based browsers (Chrome, Edge, Android Browse).
+  - **Native**: Chromium-based browsers (Chrome, Edge, Android Browser).
   - **Polyfill**: Safari, iOS, Firefox (Auto-detected and used).
+
+---
+
+## 🐛 Still Not Working?
+
+If you've tried all steps above and still can't detect QR codes:
+
+1. **Check React version**: Run `npm list react` - must be 18.x or 19.x
+2. **Try a different browser**: Test in Chrome desktop first
+3. **Check camera permissions**: System Settings → Privacy → Camera
+4. **Open an issue**: [GitHub Issues](https://github.com/htsang1904/multi-qr/issues) with:
+   - Browser name and version
+   - React version
+   - Console errors (screenshot)
+   - Video element dimensions (from Step 3)
 
 ---
 
