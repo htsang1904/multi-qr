@@ -39,9 +39,12 @@ export const useMultiQRScanner = ({
     const [isTorchAvailable, setIsTorchAvailable] = useState(false);
     const [isTorchOn, setIsTorchOn] = useState(false);
     const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
+    const streamRef = useRef<MediaStream | null>(null);
 
     // Initialize Camera
     useEffect(() => {
+        let isCancelled = false;
+
         if (!BarcodeDetectorClass) {
             setIsSupported(false);
             setError('Barcode Detection is not supported and polyfill failed to load.');
@@ -50,6 +53,14 @@ export const useMultiQRScanner = ({
 
         const startCamera = async () => {
             try {
+                // Stop any existing stream before starting a new one
+                if (streamRef.current) {
+                    streamRef.current.getTracks().forEach(track => track.stop());
+                    streamRef.current = null;
+                    setIsTorchAvailable(false);
+                    setIsTorchOn(false);
+                }
+
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: {
                         facingMode: facingMode,
@@ -58,27 +69,48 @@ export const useMultiQRScanner = ({
                     }
                 });
 
+                if (isCancelled) {
+                    stream.getTracks().forEach(track => track.stop());
+                    return;
+                }
+
+                streamRef.current = stream;
+                setActiveStream(stream);
+
                 if (videoRef.current) {
                     videoRef.current.srcObject = stream;
-                    setActiveStream(stream);
 
                     // Check for Torch capability
-                    const track = stream.getVideoTracks()[0];
-                    const capabilities = track.getCapabilities() as any;
-                    setIsTorchAvailable(!!capabilities.torch);
+                    try {
+                        const track = stream.getVideoTracks()[0];
+                        const capabilities = track.getCapabilities() as any;
+                        setIsTorchAvailable(!!capabilities.torch);
+                    } catch (e) {
+                        setIsTorchAvailable(false);
+                    }
                 }
             } catch (err) {
-                console.error('Error accessing webcam:', err);
-                setError('Could not access webcam. Please verify permissions.');
+                if (!isCancelled) {
+                    console.error('Error accessing webcam:', err);
+                    setError('Could not access webcam. Please verify permissions.');
+                }
             }
         };
 
         startCamera();
 
         return () => {
-            if (activeStream) {
-                activeStream.getTracks().forEach(track => track.stop());
+            isCancelled = true;
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(track => track.stop());
+                streamRef.current = null;
             }
+            if (videoRef.current) {
+                videoRef.current.srcObject = null;
+            }
+            setActiveStream(null);
+            setIsTorchAvailable(false);
+            setIsTorchOn(false);
         };
     }, [facingMode]);
 
@@ -131,10 +163,11 @@ export const useMultiQRScanner = ({
     }, [isSupported, effectiveInterval, isEnabled]); // onCodesDetected removed from deps
 
     const toggleTorch = useCallback(async () => {
-        if (!activeStream || !isTorchAvailable) return;
+        const stream = streamRef.current;
+        if (!stream || !isTorchAvailable) return;
 
         try {
-            const track = activeStream.getVideoTracks()[0];
+            const track = stream.getVideoTracks()[0];
             const nextState = !isTorchOn;
             await track.applyConstraints({
                 advanced: [{ torch: nextState }] as any
@@ -143,7 +176,7 @@ export const useMultiQRScanner = ({
         } catch (err) {
             console.error('Error toggling torch:', err);
         }
-    }, [activeStream, isTorchAvailable, isTorchOn]);
+    }, [isTorchAvailable, isTorchOn]);
 
     return {
         videoRef,

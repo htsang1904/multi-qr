@@ -72,6 +72,7 @@ interface ScanState {
 }
 
 function App() {
+  const [page, setPage] = useState<'home' | 'scanner'>('home');
   const scanStatesRef = useRef<Map<string, ScanState>>(new Map());
   const [uiScanStates, setUiScanStates] = useState<Map<string, ScanState>>(new Map());
 
@@ -135,10 +136,55 @@ function App() {
     return map;
   }, [uiScanStates]);
 
+  if (page === 'home') {
+    return (
+      <div className="App" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--studio-bg)' }}>
+        <div style={{ textAlign: 'center', padding: '40px', background: 'var(--studio-panel)', borderRadius: '16px', border: '1px solid var(--studio-border)', maxWidth: '500px' }}>
+          <div className="brand-badge" style={{ display: 'inline-block', marginBottom: '16px' }}>VERSION 1.0.3</div>
+          <h1 style={{ color: 'white', marginBottom: '8px' }}>Multi-QR Engine POC</h1>
+          <p style={{ color: 'var(--studio-text-muted)', marginBottom: '32px' }}>
+            Trình mô phỏng tích hợp thư viện quét mã QR. Nhấn nút bên dưới để mở camera.
+          </p>
+          <button
+            className="btn-studio active"
+            style={{ padding: '16px 40px', fontSize: '16px', borderRadius: '12px' }}
+            onClick={() => {
+              scanStatesRef.current.clear();
+              setUiScanStates(new Map());
+              setPage('scanner');
+            }}
+          >
+            START SCANNER ENGINE
+          </button>
+          <div style={{ marginTop: '24px', fontSize: '11px', color: 'var(--studio-text-muted)', opacity: 0.5 }}>
+            CAMERA Sẽ BỊ NGẮT KHI BẠN TRỞ LẠI TRANG NÀY
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="App">
       <header className="app-header">
         <div className="header-brand">
+          <button
+            onClick={() => setPage('home')}
+            style={{
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid var(--studio-border)',
+              color: 'white',
+              padding: '6px 12px',
+              borderRadius: '6px',
+              marginRight: '12px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            ← BACK
+          </button>
           <span className="brand-badge">STUDIO</span>
           <h1>SCANNER ENGINE <span style={{ opacity: 0.4 }}>v4.2.0</span></h1>
         </div>
