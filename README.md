@@ -7,7 +7,7 @@
 
 A high-performance, **industrial-grade** React library for simultaneous multi-barcode detection. Built on top of the native **Barcode Detection API** with intelligent WASM polyfills, it offers a **headless architecture** that gives you 100% control over your UI.
 
-> **New in v1.0.5**: Enhanced WASM/Polyfill loading logic. Added auto-fallback to CDN for decoding assets to ensure reliability across different project environments. Improved detection loop stability.
+> **New in v1.0.6**: Fixed React compatibility - now supports both React 18.x and 19.x. Enhanced WASM/Polyfill loading with CDN fallback.
 
 ---
 
