@@ -63,7 +63,7 @@ Ví dụ sử dụng:
     ```
 3.  Sử dụng:
     ```typescript
-    import MultiQRScanner from 'test-multi-qr';
+    import MultiQRScanner from 'multi-qr-scanner-poc';
 
     function App() {
       return <MultiQRScanner />;
@@ -73,7 +73,7 @@ Ví dụ sử dụng:
 ### Cách 3: Publish lên NPM
 1.  Đăng nhập NPM: `npm login`.
 2.  Publish: `npm publish`.
-3.  Trong dự án mới: `npm install test-multi-qr`.
+3.  Trong dự án mới: `npm install multi-qr-scanner-poc`.
 
 ## 4. Lưu ý về Dependencies
 

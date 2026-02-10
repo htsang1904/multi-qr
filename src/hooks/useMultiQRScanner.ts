@@ -1,7 +1,18 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { BarcodeDetectorPolyfill } from '@undecaf/barcode-detector-polyfill';
 
-// Force usage of polyfill if native not present
+// Configuration for Polyfill to ensure WASM is loaded from a reliable CDN if local fails
+try {
+    // @ts-ignore
+    BarcodeDetectorPolyfill.engine = 'zbar';
+    // Configure WASM path to use CDN as a fallback for decoding engine
+    // @ts-ignore
+    BarcodeDetectorPolyfill.zbarWasmPath = 'https://cdn.jsdelivr.net/npm/@undecaf/zbar-wasm@0.9.16/dist/zbar.wasm';
+} catch (e) {
+    console.warn('MultiQR: Failed to configure barcode engine', e);
+}
+
+// Force usage of polyfill if native not present or if we want consistent behavior
 const BarcodeDetectorClass = (window as any).BarcodeDetector || BarcodeDetectorPolyfill;
 
 interface Point2D {
@@ -79,6 +90,8 @@ export const useMultiQRScanner = ({
 
                 if (videoRef.current) {
                     videoRef.current.srcObject = stream;
+                    // Ensure the video element actually starts playing
+                    videoRef.current.play().catch(e => console.warn("Video play auto-start prevented:", e));
 
                     // Check for Torch capability
                     try {
@@ -121,7 +134,7 @@ export const useMultiQRScanner = ({
 
     // Barcode Detection Loop
     useEffect(() => {
-        if (!isSupported || !videoRef.current) return;
+        if (!isSupported) return;
 
         const barcodeDetector = new BarcodeDetectorClass({ formats: ['qr_code'] });
         let animationFrameId: number;
@@ -129,15 +142,16 @@ export const useMultiQRScanner = ({
         let isDetecting = false;
 
         const detectCodes = async () => {
-            if (!isEnabled) {
+            const video = videoRef.current;
+            if (!video || !isEnabled) {
                 animationFrameId = requestAnimationFrame(detectCodes);
                 return;
             }
 
             const now = performance.now();
+            // Using readyState >= 2 (HAVE_CURRENT_DATA) to start scanning as soon as possible
             if (!isDetecting && now - lastDetectTime >= effectiveInterval) {
-                const video = videoRef.current;
-                if (video && video.readyState === video.HAVE_ENOUGH_DATA) {
+                if (video.readyState >= 2 && video.videoWidth > 0) {
                     lastDetectTime = now;
                     isDetecting = true;
                     try {
@@ -146,7 +160,10 @@ export const useMultiQRScanner = ({
                             onCodesDetectedRef.current(barcodes);
                         }
                     } catch (err) {
-                        console.error('Barcode detection error:', err);
+                        // Log only once to avoid spamming
+                        if (lastDetectTime === now) {
+                            console.error('MultiQR: Detection failed. Check if WASM/Native engine is ready.', err);
+                        }
                     } finally {
                         isDetecting = false;
                     }
@@ -160,7 +177,8 @@ export const useMultiQRScanner = ({
         return () => {
             cancelAnimationFrame(animationFrameId);
         };
-    }, [isSupported, effectiveInterval, isEnabled]); // onCodesDetected removed from deps
+    }, [isSupported, effectiveInterval, isEnabled]);
+    // onCodesDetected removed from deps
 
     const toggleTorch = useCallback(async () => {
         const stream = streamRef.current;

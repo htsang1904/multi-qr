@@ -140,10 +140,11 @@ function App() {
     return (
       <div className="App" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--studio-bg)' }}>
         <div style={{ textAlign: 'center', padding: '40px', background: 'var(--studio-panel)', borderRadius: '16px', border: '1px solid var(--studio-border)', maxWidth: '500px' }}>
-          <div className="brand-badge" style={{ display: 'inline-block', marginBottom: '16px' }}>VERSION 1.0.3</div>
+          <div className="brand-badge" style={{ display: 'inline-block', marginBottom: '16px' }}>VERSION 1.0.4</div>
           <h1 style={{ color: 'white', marginBottom: '8px' }}>Multi-QR Engine POC</h1>
           <p style={{ color: 'var(--studio-text-muted)', marginBottom: '32px' }}>
-            Trình mô phỏng tích hợp thư viện quét mã QR. Nhấn nút bên dưới để mở camera.
+            Trình mô phỏng tích hợp thư viện quét mã QR.<br />
+            Đã fix lỗi camera không tắt và tăng độ ổn định quét mã.
           </p>
           <button
             className="btn-studio active"
@@ -157,7 +158,7 @@ function App() {
             START SCANNER ENGINE
           </button>
           <div style={{ marginTop: '24px', fontSize: '11px', color: 'var(--studio-text-muted)', opacity: 0.5 }}>
-            CAMERA Sẽ BỊ NGẮT KHI BẠN TRỞ LẠI TRANG NÀY
+            BẢN FIX: STALE CLOSURE & DETECTION RELIABILITY
           </div>
         </div>
       </div>
