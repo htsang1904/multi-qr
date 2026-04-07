@@ -1,19 +1,17 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { BarcodeDetectorPolyfill } from '@undecaf/barcode-detector-polyfill';
+import {
+    getDefaultScanner,
+    scanImageData,
+    setModuleArgs,
+    ZBarConfigType,
+    ZBarSymbolType,
+} from '@undecaf/zbar-wasm';
+import zbarWasmUrl from '@undecaf/zbar-wasm/dist/zbar.wasm?url';
 
-// Configuration for Polyfill to ensure WASM is loaded from a reliable CDN if local fails
-try {
-    // @ts-ignore
-    BarcodeDetectorPolyfill.engine = 'zbar';
-    // Configure WASM path to use CDN as a fallback for decoding engine
-    // @ts-ignore
-    BarcodeDetectorPolyfill.zbarWasmPath = 'https://cdn.jsdelivr.net/npm/@undecaf/zbar-wasm@0.9.16/dist/zbar.wasm';
-} catch (e) {
-    console.warn('MultiQR: Failed to configure barcode engine', e);
-}
-
-// Force usage of polyfill if native not present or if we want consistent behavior
-const BarcodeDetectorClass = (window as any).BarcodeDetector || BarcodeDetectorPolyfill;
+setModuleArgs({
+    locateFile: (filename, directory) =>
+        filename === 'zbar.wasm' ? zbarWasmUrl : `${directory}${filename}`,
+});
 
 interface Point2D {
     x: number;
@@ -35,6 +33,87 @@ export interface UseMultiQRScannerOptions {
     onCodesDetected?: (codes: DetectedBarcode[]) => void;
 }
 
+type BarcodeDetectorLike = {
+    detect: (source: HTMLVideoElement) => Promise<DetectedBarcode[]>;
+};
+
+const getNativeBarcodeDetector = () =>
+    typeof window !== 'undefined' ? (window as any).BarcodeDetector : undefined;
+
+const createBoundingBox = (points: Point2D[]) => {
+    if (points.length === 0) {
+        return DOMRectReadOnly.fromRect({ x: 0, y: 0, width: 0, height: 0 });
+    }
+
+    const xs = points.map(point => point.x);
+    const ys = points.map(point => point.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+
+    return DOMRectReadOnly.fromRect({
+        x: minX,
+        y: minY,
+        width: maxX - minX,
+        height: maxY - minY,
+    });
+};
+
+const createLocalDetector = async (): Promise<BarcodeDetectorLike> => {
+    const scanner = await getDefaultScanner();
+    scanner.setConfig(ZBarSymbolType.ZBAR_NONE, ZBarConfigType.ZBAR_CFG_ENABLE, 0);
+    scanner.setConfig(ZBarSymbolType.ZBAR_QRCODE, ZBarConfigType.ZBAR_CFG_ENABLE, 1);
+
+    const frameCanvas = document.createElement('canvas');
+    const frameContext = frameCanvas.getContext('2d', { willReadFrequently: true });
+
+    if (!frameContext) {
+        throw new Error('Could not create a canvas context for QR detection.');
+    }
+
+    return {
+        detect: async (video: HTMLVideoElement) => {
+            if (video.videoWidth === 0 || video.videoHeight === 0) {
+                return [];
+            }
+
+            if (frameCanvas.width !== video.videoWidth || frameCanvas.height !== video.videoHeight) {
+                frameCanvas.width = video.videoWidth;
+                frameCanvas.height = video.videoHeight;
+            }
+
+            frameContext.drawImage(video, 0, 0, frameCanvas.width, frameCanvas.height);
+            const imageData = frameContext.getImageData(0, 0, frameCanvas.width, frameCanvas.height);
+            const symbols = await scanImageData(imageData, scanner);
+
+            return symbols.map(symbol => {
+                const cornerPoints = symbol.points.map(point => ({
+                    x: point.x,
+                    y: point.y,
+                }));
+
+                return {
+                    boundingBox: createBoundingBox(cornerPoints),
+                    cornerPoints,
+                    format: 'qr_code',
+                    rawValue: symbol.decode('utf-8'),
+                };
+            });
+        },
+    };
+};
+
+const createDetector = async (): Promise<BarcodeDetectorLike> => {
+    const NativeBarcodeDetector = getNativeBarcodeDetector();
+
+    if (NativeBarcodeDetector) {
+        return new NativeBarcodeDetector({ formats: ['qr_code'] });
+    }
+
+    return createLocalDetector();
+};
+
 export const useMultiQRScanner = ({
     isEnabled = true,
     scanInterval = 600,
@@ -51,16 +130,40 @@ export const useMultiQRScanner = ({
     const [isTorchOn, setIsTorchOn] = useState(false);
     const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
+    const detectorRef = useRef<BarcodeDetectorLike | null>(null);
+
+    useEffect(() => {
+        let isCancelled = false;
+
+        const initializeDetector = async () => {
+            try {
+                const detector = await createDetector();
+                if (isCancelled) return;
+
+                detectorRef.current = detector;
+                setIsSupported(true);
+                setError('');
+            } catch (err) {
+                if (isCancelled) return;
+
+                detectorRef.current = null;
+                setIsSupported(false);
+                setError('Barcode detection is not supported and local QR engine failed to load.');
+                console.error('MultiQR: Failed to initialize barcode detector', err);
+            }
+        };
+
+        initializeDetector();
+
+        return () => {
+            isCancelled = true;
+            detectorRef.current = null;
+        };
+    }, []);
 
     // Initialize Camera
     useEffect(() => {
         let isCancelled = false;
-
-        if (!BarcodeDetectorClass) {
-            setIsSupported(false);
-            setError('Barcode Detection is not supported and polyfill failed to load.');
-            return;
-        }
 
         const startCamera = async () => {
             try {
@@ -136,14 +239,14 @@ export const useMultiQRScanner = ({
     useEffect(() => {
         if (!isSupported) return;
 
-        const barcodeDetector = new BarcodeDetectorClass({ formats: ['qr_code'] });
         let animationFrameId: number;
         let lastDetectTime = 0;
         let isDetecting = false;
 
         const detectCodes = async () => {
             const video = videoRef.current;
-            if (!video || !isEnabled) {
+            const detector = detectorRef.current;
+            if (!video || !detector || !isEnabled) {
                 animationFrameId = requestAnimationFrame(detectCodes);
                 return;
             }
@@ -155,7 +258,7 @@ export const useMultiQRScanner = ({
                     lastDetectTime = now;
                     isDetecting = true;
                     try {
-                        const barcodes = await barcodeDetector.detect(video);
+                        const barcodes = await detector.detect(video);
                         if (onCodesDetectedRef.current) {
                             onCodesDetectedRef.current(barcodes);
                         }

@@ -86,6 +86,7 @@ function App() {
   const [activeCodes, setActiveCodes] = useState<DetectedBarcode[]>([]);
   const [fps, setFps] = useState(25);
   const [showCorners, setShowCorners] = useState(true);
+  const [showBarcodeText, setShowBarcodeText] = useState(true);
 
   // Ultra-throttled states for UI
   const lastActiveCodesStr = useRef("");
@@ -210,6 +211,7 @@ function App() {
             onTorchAvailable={setIsTorchAvailable}
             scanRegion={useROI ? { x: 25, y: 25, width: 50, height: 50 } : undefined}
             title={useROI ? "PRECISION LOCK ACTIVE" : "WIDE SPECTRUM SCAN"}
+            showBarcodeText={showBarcodeText}
           >
             {/* HUD badges are now rendered directly on Canvas by MultiQRScanner for 60FPS performance */}
           </MultiQRScanner>
@@ -257,6 +259,9 @@ function App() {
         </button>
         <button className={`btn-studio ${showCorners ? 'active' : ''} border-btn`} onClick={() => setShowCorners(!showCorners)}>
           CORNERS: {showCorners ? 'ON' : 'OFF'}
+        </button>
+        <button className={`btn-studio ${showBarcodeText ? 'active' : ''} border-btn`} onClick={() => setShowBarcodeText(!showBarcodeText)}>
+          TEXT: {showBarcodeText ? 'ON' : 'OFF'}
         </button>
       </footer>
     </div>

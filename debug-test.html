@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,11 +13,13 @@
             color: white;
             font-family: monospace;
         }
+
         #video {
             width: 100%;
             max-width: 640px;
             border: 2px solid #00ff00;
         }
+
         #logs {
             margin-top: 20px;
             padding: 10px;
@@ -26,23 +29,57 @@
             overflow-y: auto;
             font-size: 12px;
         }
+
         .log-entry {
             margin: 2px 0;
             padding: 2px 5px;
         }
-        .log-info { color: #00ff00; }
-        .log-error { color: #ff0000; }
-        .log-warn { color: #ffaa00; }
+
+        .log-info {
+            color: #00ff00;
+        }
+
+        .log-error {
+            color: #ff0000;
+        }
+
+        .log-warn {
+            color: #ffaa00;
+        }
     </style>
 </head>
+
 <body>
     <h1>🔍 QR Scanner Debug Test</h1>
     <video id="video" autoplay playsinline muted></video>
+    <div style="margin-top: 10px; font-family: sans-serif;">
+        <label>
+            <input type="checkbox" id="showTextToggle" checked>
+            Log Barcode Text
+        </label>
+    </div>
     <div id="logs"></div>
 
     <script type="module">
+        import {
+            getDefaultScanner,
+            scanImageData,
+            setModuleArgs,
+            ZBarConfigType,
+            ZBarSymbolType
+        } from '@undecaf/zbar-wasm';
+        import zbarWasmUrl from '@undecaf/zbar-wasm/dist/zbar.wasm?url';
+
         const logsDiv = document.getElementById('logs');
         const video = document.getElementById('video');
+        const showTextToggle = document.getElementById('showTextToggle');
+        const frameCanvas = document.createElement('canvas');
+        const frameContext = frameCanvas.getContext('2d', { willReadFrequently: true });
+
+        setModuleArgs({
+            locateFile: (filename, directory) =>
+                filename === 'zbar.wasm' ? zbarWasmUrl : `${directory}${filename}`,
+        });
 
         function log(message, type = 'info') {
             const entry = document.createElement('div');
@@ -73,10 +110,37 @@
             log(args.join(' '), 'warn');
         };
 
+        async function createLocalDetector() {
+            if (!frameContext) {
+                throw new Error('Canvas 2D context is unavailable');
+            }
+
+            const scanner = await getDefaultScanner();
+            scanner.setConfig(ZBarSymbolType.ZBAR_NONE, ZBarConfigType.ZBAR_CFG_ENABLE, 0);
+            scanner.setConfig(ZBarSymbolType.ZBAR_QRCODE, ZBarConfigType.ZBAR_CFG_ENABLE, 1);
+
+            return {
+                async detect(videoElement) {
+                    if (frameCanvas.width !== videoElement.videoWidth || frameCanvas.height !== videoElement.videoHeight) {
+                        frameCanvas.width = videoElement.videoWidth;
+                        frameCanvas.height = videoElement.videoHeight;
+                    }
+
+                    frameContext.drawImage(videoElement, 0, 0, frameCanvas.width, frameCanvas.height);
+                    const imageData = frameContext.getImageData(0, 0, frameCanvas.width, frameCanvas.height);
+                    const symbols = await scanImageData(imageData, scanner);
+
+                    return symbols.map(symbol => ({
+                        rawValue: symbol.decode('utf-8')
+                    }));
+                }
+            };
+        }
+
         async function testCamera() {
             try {
                 log('🎬 Starting camera test...');
-                
+
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: {
                         facingMode: 'environment',
@@ -86,7 +150,7 @@
                 });
 
                 log('✅ Camera stream obtained: ' + stream.getVideoTracks()[0].label);
-                
+
                 video.srcObject = stream;
                 log('🎥 Video srcObject set');
 
@@ -103,12 +167,12 @@
 
                 // Test BarcodeDetector
                 log('🔍 Testing BarcodeDetector...');
-                
+
                 if ('BarcodeDetector' in window) {
                     log('✅ Native BarcodeDetector available');
                     const detector = new BarcodeDetector({ formats: ['qr_code'] });
                     log('✅ BarcodeDetector instance created');
-                    
+
                     // Start detection loop
                     let frameCount = 0;
                     const detect = async () => {
@@ -117,11 +181,15 @@
                             if (frameCount === 1) {
                                 log(`🎬 First detection frame: ${video.videoWidth}x${video.videoHeight}, readyState: ${video.readyState}`);
                             }
-                            
+
                             try {
                                 const barcodes = await detector.detect(video);
                                 if (barcodes.length > 0) {
-                                    log('🎯 QR Codes detected: ' + barcodes.map(b => b.rawValue).join(', '));
+                                    if (showTextToggle.checked) {
+                                        log('🎯 QR Codes detected: ' + barcodes.map(b => b.rawValue).join(', '));
+                                    } else {
+                                        log(`🎯 ${barcodes.length} QR Code(s) detected (text hidden)`);
+                                    }
                                 }
                             } catch (err) {
                                 log('❌ Detection error: ' + err.message, 'error');
@@ -129,25 +197,16 @@
                         } else if (frameCount % 60 === 0) {
                             log(`⏳ Waiting for video... readyState: ${video.readyState}, size: ${video.videoWidth}x${video.videoHeight}`);
                         }
-                        
+
                         requestAnimationFrame(detect);
                     };
-                    
+
                     requestAnimationFrame(detect);
                 } else {
-                    log('⚠️ Native BarcodeDetector NOT available - need polyfill', 'warn');
-                    log('🔄 Loading polyfill...');
-                    
-                    // Dynamically import polyfill
-                    const { BarcodeDetectorPolyfill } = await import('https://cdn.jsdelivr.net/npm/@undecaf/barcode-detector-polyfill@0.9.23/dist/index.js');
-                    log('✅ Polyfill loaded');
-                    
-                    BarcodeDetectorPolyfill.engine = 'zbar';
-                    BarcodeDetectorPolyfill.zbarWasmPath = 'https://cdn.jsdelivr.net/npm/@undecaf/zbar-wasm@0.9.16/dist/zbar.wasm';
-                    
-                    const detector = new BarcodeDetectorPolyfill({ formats: ['qr_code'] });
-                    log('✅ Polyfill BarcodeDetector instance created');
-                    
+                    log('⚠️ Native BarcodeDetector NOT available - using local WASM detector', 'warn');
+                    const detector = await createLocalDetector();
+                    log('✅ Local WASM detector instance created');
+
                     // Start detection loop
                     let frameCount = 0;
                     const detect = async () => {
@@ -156,11 +215,15 @@
                             if (frameCount === 1) {
                                 log(`🎬 First detection frame: ${video.videoWidth}x${video.videoHeight}, readyState: ${video.readyState}`);
                             }
-                            
+
                             try {
                                 const barcodes = await detector.detect(video);
                                 if (barcodes.length > 0) {
-                                    log('🎯 QR Codes detected: ' + barcodes.map(b => b.rawValue).join(', '));
+                                    if (showTextToggle.checked) {
+                                        log('🎯 QR Codes detected: ' + barcodes.map(b => b.rawValue).join(', '));
+                                    } else {
+                                        log(`🎯 ${barcodes.length} QR Code(s) detected (text hidden)`);
+                                    }
                                 }
                             } catch (err) {
                                 log('❌ Detection error: ' + err.message, 'error');
@@ -168,10 +231,10 @@
                         } else if (frameCount % 60 === 0) {
                             log(`⏳ Waiting for video... readyState: ${video.readyState}, size: ${video.videoWidth}x${video.videoHeight}`);
                         }
-                        
+
                         requestAnimationFrame(detect);
                     };
-                    
+
                     requestAnimationFrame(detect);
                 }
 
@@ -185,4 +248,5 @@
         testCamera();
     </script>
 </body>
+
 </html>

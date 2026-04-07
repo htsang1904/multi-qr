@@ -15,6 +15,7 @@ export interface MultiQRScannerProps {
     title?: string;
     showFrame?: boolean;
     showScanLine?: boolean;
+    showBarcodeText?: boolean;
     scanLineColor?: string;
     frameColor?: string;
     overlayColor?: string;
@@ -41,6 +42,7 @@ const MultiQRScanner: React.FC<MultiQRScannerProps> = ({
     title = 'ĐƯA MÃ QR CODE VÀO ĐÂY ĐỂ ĐIỂM DANH',
     showFrame = true,
     showScanLine = true,
+    showBarcodeText = true,
     scanLineColor = '#FFFFFF',
     frameColor = '#FFFFFF',
     overlayColor = 'rgba(0, 0, 0, 0.5)',
@@ -139,7 +141,7 @@ const MultiQRScanner: React.FC<MultiQRScannerProps> = ({
             cancelAnimationFrame(rafId);
             activeBarcodesRef.current = []; // Safety cleanup
         };
-    }, [isEnabled, codeStatuses, statusColors]);
+    }, [isEnabled, codeStatuses, statusColors, showBarcodeText]);
 
     const drawOverlay = (barcodes: DetectedBarcode[]) => {
         const video = videoRef.current;
@@ -173,32 +175,35 @@ const MultiQRScanner: React.FC<MultiQRScannerProps> = ({
 
             // 2. Draw Mini HUD Badge (Canvas-based to avoid DOM lag)
             const firstPoint = barcode.cornerPoints[0];
-            const padding = 8;
-            const text = barcode.rawValue.substring(0, 10) + "...";
-            ctx.font = '12px "JetBrains Mono", monospace';
-            const metrics = ctx.measureText(text);
-            const badgeWidth = metrics.width + padding * 2;
-            const badgeHeight = 22;
 
-            // Badge Background (Glassmorphism effect in Canvas)
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-            ctx.beginPath();
-            ctx.roundRect(firstPoint.x, firstPoint.y - badgeHeight - 10, badgeWidth, badgeHeight, 6);
-            ctx.fill();
-            ctx.lineWidth = 1;
-            ctx.strokeStyle = color;
-            ctx.stroke();
+            if (showBarcodeText) {
+                const padding = 8;
+                const text = barcode.rawValue.substring(0, 10) + "...";
+                ctx.font = '12px "JetBrains Mono", monospace';
+                const metrics = ctx.measureText(text);
+                const badgeWidth = metrics.width + padding * 2;
+                const badgeHeight = 22;
 
-            // Badge Text
-            ctx.fillStyle = '#FFFFFF';
-            ctx.fillText(text, firstPoint.x + padding, firstPoint.y - badgeHeight + 5);
-
-            // Status Indicator Dot
-            if (status === 'success') {
-                ctx.fillStyle = '#00FF00';
+                // Badge Background (Glassmorphism effect in Canvas)
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
                 ctx.beginPath();
-                ctx.arc(firstPoint.x + badgeWidth - 8, firstPoint.y - badgeHeight / 2 - 10, 3, 0, Math.PI * 2);
+                ctx.roundRect(firstPoint.x, firstPoint.y - badgeHeight - 10, badgeWidth, badgeHeight, 6);
                 ctx.fill();
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = color;
+                ctx.stroke();
+
+                // Badge Text
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillText(text, firstPoint.x + padding, firstPoint.y - badgeHeight + 5);
+
+                // Status Indicator Dot
+                if (status === 'success') {
+                    ctx.fillStyle = '#00FF00';
+                    ctx.beginPath();
+                    ctx.arc(firstPoint.x + badgeWidth - 8, firstPoint.y - badgeHeight / 2 - 10, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
             }
 
             // 3. Custom Renderer (Slot)
