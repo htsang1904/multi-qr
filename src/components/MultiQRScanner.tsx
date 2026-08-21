@@ -23,6 +23,12 @@ export interface MultiQRScannerProps {
     children?: React.ReactNode;
     isEnabled?: boolean;
     facingMode?: 'user' | 'environment';
+    /** ID of the camera to use. Takes precedence over facingMode. */
+    deviceId?: string;
+    /** Called after the selected camera stream has started successfully. */
+    onCameraReady?: (stream: MediaStream) => void;
+    /** Called when the camera cannot be opened or used. */
+    onCameraError?: (error: Error | DOMException) => void;
     statusColors?: Partial<Record<ScanStatus, string>>;
     showCorners?: boolean; // Alias for showFrame
     // Enhanced Props
@@ -50,6 +56,9 @@ const MultiQRScanner: React.FC<MultiQRScannerProps> = ({
     children,
     isEnabled = true,
     facingMode = 'environment',
+    deviceId,
+    onCameraReady,
+    onCameraError,
     statusColors = {},
     showCorners,
     torch = false,
@@ -68,7 +77,10 @@ const MultiQRScanner: React.FC<MultiQRScannerProps> = ({
         isEnabled,
         scanInterval,
         facingMode,
+        deviceId,
         fps,
+        onCameraReady,
+        onCameraError,
         onCodesDetected: (codes: DetectedBarcode[]) => {
             let processedCodes = codes;
             // Filter by scanRegion if provided

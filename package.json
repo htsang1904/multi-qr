@@ -1,7 +1,7 @@
 {
   "name": "multi-qr-scanner-poc",
   "private": false,
-  "version": "1.0.9",
+  "version": "1.1.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/htsang1904/multi-qr.git"
@@ -13,22 +13,24 @@
   "type": "module",
   "main": "./dist/multi-qr-scanner.umd.cjs",
   "module": "./dist/multi-qr-scanner.js",
-  "types": "./dist/components/MultiQRScanner.d.ts",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/components/MultiQRScanner.d.ts",
+      "types": "./dist/index.d.ts",
       "import": "./dist/multi-qr-scanner.js",
       "require": "./dist/multi-qr-scanner.umd.cjs"
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:lib": "tsc -b && vite build --config vite.lib.config.ts",
     "lint": "eslint .",
+    "prepublishOnly": "npm run lint && npm run build:lib",
     "preview": "vite preview"
   },
   "peerDependencies": {

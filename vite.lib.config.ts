@@ -12,7 +12,7 @@ export default defineConfig({
     build: {
         lib: {
             // Could also be a dictionary or array of multiple entry points
-            entry: resolve(__dirname, 'src/components/MultiQRScanner.tsx'),
+            entry: resolve(__dirname, 'src/index.ts'),
             name: 'MultiQRScanner',
             // the proper extensions will be added
             fileName: 'multi-qr-scanner',

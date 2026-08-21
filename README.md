@@ -7,7 +7,7 @@
 
 A high-performance, **industrial-grade** React library for simultaneous multi-barcode detection. Built on top of the native **Barcode Detection API** with intelligent WASM polyfills, it offers a **headless architecture** that gives you 100% control over your UI.
 
-> **New in v1.0.6**: Fixed React compatibility - now supports both React 18.x and 19.x. Enhanced WASM/Polyfill loading with CDN fallback.
+> **New in v1.1.0**: Select an exact camera with `deviceId`, receive camera lifecycle callbacks, and safely switch or disable cameras without leaking streams.
 
 ---
 
@@ -124,12 +124,66 @@ function CustomScanner() {
 | `codeStatuses` | `Map<string, ScanStatus>` | `new Map()` | Map barcode values to `'processing' \| 'success' \| 'error'`. |
 | `fps` | `number` | `25` | Frames per second for the scanner (1-30). Lower = Less battery. |
 | `facingMode` | `'user' \| 'environment'` | `'environment'` | Camera selection. |
+| `deviceId` | `string` | `undefined` | Exact camera ID. Takes precedence over `facingMode`. |
+| `onCameraReady` | `(stream: MediaStream) => void` | `undefined` | Called after the selected camera starts successfully. |
+| `onCameraError` | `(error: Error \| DOMException) => void` | `undefined` | Called when the camera cannot be opened or becomes unavailable. |
 | `torch` | `boolean` | `false` | Imperative control for the flashlight. |
 | `onTorchAvailable` | `(avail: boolean) => void` | `undefined` | Callback when device hardware reports torch capability. |
 | `scanRegion` | `{x, y, width, height}` | `undefined` | % based Region of Interest (ROI). Filter codes outside this zone. |
 | `title` | `string` | `"ĐƯA MÃ QR..."` | Floating title in the scanner UI. |
 | `showCorners` | `boolean` | `true` | Show/hide the industrial HUD 4-corner markers. |
 | `statusColors` | `Partial<Record<ScanStatus, string>>`| `{}` | Customize success/error/processing colors. |
+
+The headless `useMultiQRScanner` hook accepts the same `deviceId`, `onCameraReady`, and `onCameraError` options.
+
+### Selecting a camera by device ID
+
+The consumer application owns device enumeration and the camera picker. Pass the selected `MediaDeviceInfo.deviceId` to the scanner:
+
+```tsx
+import MultiQRScanner from 'multi-qr-scanner-poc';
+import { useEffect, useState } from 'react';
+
+function CameraScanner() {
+  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
+  const [deviceId, setDeviceId] = useState('');
+
+  useEffect(() => {
+    const refreshCameras = async () => {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      setCameras(devices.filter(device => device.kind === 'videoinput'));
+    };
+
+    void refreshCameras();
+    navigator.mediaDevices.addEventListener('devicechange', refreshCameras);
+    return () => navigator.mediaDevices.removeEventListener('devicechange', refreshCameras);
+  }, []);
+
+  return (
+    <>
+      <select value={deviceId} onChange={event => setDeviceId(event.target.value)}>
+        <option value="">Default camera</option>
+        {cameras.map(camera => (
+          <option key={camera.deviceId} value={camera.deviceId}>
+            {camera.label || 'Camera'}
+          </option>
+        ))}
+      </select>
+
+      <MultiQRScanner
+        isEnabled
+        deviceId={deviceId || undefined}
+        facingMode="environment"
+        onCodesDetected={codes => console.log(codes)}
+        onCameraReady={stream => console.info('Camera ready', stream)}
+        onCameraError={error => console.error('Camera error', error)}
+      />
+    </>
+  );
+}
+```
+
+Camera labels may be empty until the user grants camera permission. When `deviceId` changes, the previous stream is stopped before the new camera is opened. Setting `isEnabled={false}` releases the active camera.
 
 ### `DetectedBarcode` Object
 ```typescript

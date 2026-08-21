@@ -30,15 +30,25 @@ export interface UseMultiQRScannerOptions {
     scanInterval?: number;
     fps?: number; // New: Frames per second control
     facingMode?: 'user' | 'environment';
+    /** ID of the camera to use. Takes precedence over facingMode. */
+    deviceId?: string;
     onCodesDetected?: (codes: DetectedBarcode[]) => void;
+    /** Called after the selected camera stream has started successfully. */
+    onCameraReady?: (stream: MediaStream) => void;
+    /** Called when the camera cannot be opened or used. */
+    onCameraError?: (error: Error | DOMException) => void;
 }
 
 type BarcodeDetectorLike = {
     detect: (source: HTMLVideoElement) => Promise<DetectedBarcode[]>;
 };
 
+type BarcodeDetectorConstructor = new (options: { formats: string[] }) => BarcodeDetectorLike;
+
 const getNativeBarcodeDetector = () =>
-    typeof window !== 'undefined' ? (window as any).BarcodeDetector : undefined;
+    typeof window !== 'undefined'
+        ? (window as Window & { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector
+        : undefined;
 
 const createBoundingBox = (points: Point2D[]) => {
     if (points.length === 0) {
@@ -119,7 +129,10 @@ export const useMultiQRScanner = ({
     scanInterval = 600,
     fps,
     facingMode = 'environment',
-    onCodesDetected
+    deviceId,
+    onCodesDetected,
+    onCameraReady,
+    onCameraError
 }: UseMultiQRScannerOptions = {}) => {
     // Calculate final interval from FPS if provided, ensuring a safe minimum of 40ms (~25 FPS)
     const effectiveInterval = fps ? Math.max(40, 1000 / fps) : scanInterval;
@@ -131,6 +144,16 @@ export const useMultiQRScanner = ({
     const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
     const detectorRef = useRef<BarcodeDetectorLike | null>(null);
+    const onCameraReadyRef = useRef(onCameraReady);
+    const onCameraErrorRef = useRef(onCameraError);
+
+    useEffect(() => {
+        onCameraReadyRef.current = onCameraReady;
+    }, [onCameraReady]);
+
+    useEffect(() => {
+        onCameraErrorRef.current = onCameraError;
+    }, [onCameraError]);
 
     useEffect(() => {
         let isCancelled = false;
@@ -142,7 +165,6 @@ export const useMultiQRScanner = ({
 
                 detectorRef.current = detector;
                 setIsSupported(true);
-                setError('');
             } catch (err) {
                 if (isCancelled) return;
 
@@ -164,71 +186,146 @@ export const useMultiQRScanner = ({
     // Initialize Camera
     useEffect(() => {
         let isCancelled = false;
+        let removeTrackEndedListener = () => {};
 
-        const startCamera = async () => {
-            try {
-                // Stop any existing stream before starting a new one
-                if (streamRef.current) {
-                    streamRef.current.getTracks().forEach(track => track.stop());
-                    streamRef.current = null;
-                    setIsTorchAvailable(false);
-                    setIsTorchOn(false);
-                }
-
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        facingMode: facingMode,
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    }
-                });
-
-                if (isCancelled) {
-                    stream.getTracks().forEach(track => track.stop());
-                    return;
-                }
-
-                streamRef.current = stream;
-                setActiveStream(stream);
-
-                if (videoRef.current) {
-                    videoRef.current.srcObject = stream;
-                    // Ensure the video element actually starts playing
-                    videoRef.current.play().catch(e => console.warn("Video play auto-start prevented:", e));
-
-                    // Check for Torch capability
-                    try {
-                        const track = stream.getVideoTracks()[0];
-                        const capabilities = track.getCapabilities() as any;
-                        setIsTorchAvailable(!!capabilities.torch);
-                    } catch (e) {
-                        setIsTorchAvailable(false);
-                    }
-                }
-            } catch (err) {
-                if (!isCancelled) {
-                    console.error('Error accessing webcam:', err);
-                    setError('Could not access webcam. Please verify permissions.');
-                }
-            }
+        const stopStream = (stream: MediaStream | null) => {
+            stream?.getTracks().forEach(track => track.stop());
         };
 
-        startCamera();
+        const clearCurrentStream = () => {
+            removeTrackEndedListener();
+            removeTrackEndedListener = () => {};
+            const currentStream = streamRef.current;
+            stopStream(currentStream);
+            streamRef.current = null;
 
-        return () => {
-            isCancelled = true;
-            if (streamRef.current) {
-                streamRef.current.getTracks().forEach(track => track.stop());
-                streamRef.current = null;
-            }
-            if (videoRef.current) {
+            if (videoRef.current?.srcObject === currentStream) {
                 videoRef.current.srcObject = null;
             }
+
             setActiveStream(null);
             setIsTorchAvailable(false);
             setIsTorchOn(false);
         };
-    }, [facingMode]);
+
+        clearCurrentStream();
+
+        if (!isEnabled) {
+            return () => {
+                isCancelled = true;
+                clearCurrentStream();
+            };
+        }
+
+        const startCamera = async () => {
+            try {
+                if (!navigator.mediaDevices?.getUserMedia) {
+                    throw new Error('Camera access is not supported in this browser.');
+                }
+
+                const videoConstraints: MediaTrackConstraints = deviceId
+                    ? {
+                        deviceId: { exact: deviceId },
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                    : {
+                        facingMode,
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    };
+
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: videoConstraints
+                });
+
+                if (isCancelled) {
+                    stopStream(stream);
+                    return;
+                }
+
+                const video = videoRef.current;
+                if (!video) {
+                    stopStream(stream);
+                    throw new Error('Camera video element is not available.');
+                }
+
+                streamRef.current = stream;
+                video.srcObject = stream;
+
+                const videoTrack = stream.getVideoTracks()[0];
+                if (videoTrack) {
+                    const handleTrackEnded = () => {
+                        if (isCancelled || streamRef.current !== stream) return;
+
+                        const cameraError = new DOMException(
+                            'The selected camera is no longer available.',
+                            'NotReadableError'
+                        );
+                        clearCurrentStream();
+                        setError(cameraError.message);
+                        try {
+                            onCameraErrorRef.current?.(cameraError);
+                        } catch (callbackError) {
+                            console.error('MultiQR: onCameraError callback failed', callbackError);
+                        }
+                    };
+
+                    videoTrack.addEventListener('ended', handleTrackEnded);
+                    removeTrackEndedListener = () => {
+                        videoTrack.removeEventListener('ended', handleTrackEnded);
+                    };
+                }
+
+                await video.play();
+
+                if (isCancelled || streamRef.current !== stream) {
+                    stopStream(stream);
+                    if (video.srcObject === stream) video.srcObject = null;
+                    return;
+                }
+
+                setActiveStream(stream);
+                setError('');
+
+                try {
+                    const track = stream.getVideoTracks()[0];
+                    const capabilities = track?.getCapabilities() as MediaTrackCapabilities & { torch?: boolean };
+                    setIsTorchAvailable(!!capabilities?.torch);
+                } catch {
+                    setIsTorchAvailable(false);
+                }
+
+                try {
+                    onCameraReadyRef.current?.(stream);
+                } catch (callbackError) {
+                    console.error('MultiQR: onCameraReady callback failed', callbackError);
+                }
+            } catch (err) {
+                if (!isCancelled) {
+                    const cameraError = err instanceof Error
+                        ? err
+                        : new Error('An unknown camera error occurred.');
+
+                    clearCurrentStream();
+                    console.error('Error accessing webcam:', cameraError);
+                    setError(cameraError.message || 'Could not access webcam. Please verify permissions.');
+                    try {
+                        onCameraErrorRef.current?.(cameraError);
+                    } catch (callbackError) {
+                        console.error('MultiQR: onCameraError callback failed', callbackError);
+                    }
+                }
+            }
+        };
+
+        void startCamera();
+
+        return () => {
+            isCancelled = true;
+            clearCurrentStream();
+        };
+    }, [isEnabled, deviceId, facingMode]);
 
     const onCodesDetectedRef = useRef(onCodesDetected);
     useEffect(() => {
@@ -291,7 +388,7 @@ export const useMultiQRScanner = ({
             const track = stream.getVideoTracks()[0];
             const nextState = !isTorchOn;
             await track.applyConstraints({
-                advanced: [{ torch: nextState }] as any
+                advanced: [{ torch: nextState } as MediaTrackConstraintSet & { torch: boolean }]
             });
             setIsTorchOn(nextState);
         } catch (err) {
