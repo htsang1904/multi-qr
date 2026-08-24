@@ -5,6 +5,9 @@ import dts from 'vite-plugin-dts'; // Suggesting usage of dts plugin for types
 
 // https://vitejs.dev/config/
 export default defineConfig({
+    // Keep emitted assets relative to the library bundle. Consumers may serve
+    // the package from a sub-path or a CDN rather than the site root.
+    base: './',
     plugins: [
         react(),
         dts({ insertTypesEntry: true, tsconfigPath: './tsconfig.app.json' }), // Uncomment if vite-plugin-dts is installed

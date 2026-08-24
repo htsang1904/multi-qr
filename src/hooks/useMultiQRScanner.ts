@@ -6,11 +6,30 @@ import {
     ZBarConfigType,
     ZBarSymbolType,
 } from '@undecaf/zbar-wasm';
-import zbarWasmUrl from '@undecaf/zbar-wasm/dist/zbar.wasm?url';
+// `no-inline` is important for library builds. A large data: URL works on some
+// desktop browsers but fails to load on Safari/iOS.
+import zbarWasmUrl from '@undecaf/zbar-wasm/dist/zbar.wasm?url&no-inline';
+
+const LOG_PREFIX = '[MultiQR]';
+
+const errorDetails = (error: unknown) => error instanceof Error
+    ? { name: error.name, message: error.message, stack: error.stack }
+    : { error };
 
 setModuleArgs({
-    locateFile: (filename, directory) =>
-        filename === 'zbar.wasm' ? zbarWasmUrl : `${directory}${filename}`,
+    locateFile: (filename, directory) => {
+        const resolvedUrl = filename === 'zbar.wasm' ? zbarWasmUrl : `${directory}${filename}`;
+        if (filename === 'zbar.wasm') {
+            console.info(`${LOG_PREFIX} Resolving WASM asset`, {
+                url: resolvedUrl,
+                protocol: (() => {
+                    try { return new URL(resolvedUrl, document.baseURI).protocol; }
+                    catch { return 'invalid-url'; }
+                })(),
+            });
+        }
+        return resolvedUrl;
+    },
 });
 
 interface Point2D {
@@ -41,6 +60,7 @@ export interface UseMultiQRScannerOptions {
 
 type BarcodeDetectorLike = {
     detect: (source: HTMLVideoElement) => Promise<DetectedBarcode[]>;
+    engine: 'native' | 'zbar-wasm';
 };
 
 type BarcodeDetectorConstructor = new (options: { formats: string[] }) => BarcodeDetectorLike;
@@ -71,6 +91,9 @@ const createBoundingBox = (points: Point2D[]) => {
 };
 
 const createLocalDetector = async (): Promise<BarcodeDetectorLike> => {
+    console.info(`${LOG_PREFIX} Native BarcodeDetector unavailable; loading ZBar WASM`, {
+        wasmUrl: zbarWasmUrl,
+    });
     const scanner = await getDefaultScanner();
     scanner.setConfig(ZBarSymbolType.ZBAR_NONE, ZBarConfigType.ZBAR_CFG_ENABLE, 0);
     scanner.setConfig(ZBarSymbolType.ZBAR_QRCODE, ZBarConfigType.ZBAR_CFG_ENABLE, 1);
@@ -83,6 +106,7 @@ const createLocalDetector = async (): Promise<BarcodeDetectorLike> => {
     }
 
     return {
+        engine: 'zbar-wasm',
         detect: async (video: HTMLVideoElement) => {
             if (video.videoWidth === 0 || video.videoHeight === 0) {
                 return [];
@@ -118,7 +142,9 @@ const createDetector = async (): Promise<BarcodeDetectorLike> => {
     const NativeBarcodeDetector = getNativeBarcodeDetector();
 
     if (NativeBarcodeDetector) {
-        return new NativeBarcodeDetector({ formats: ['qr_code'] });
+        console.info(`${LOG_PREFIX} Using native BarcodeDetector`);
+        const detector = new NativeBarcodeDetector({ formats: ['qr_code'] });
+        return { engine: 'native', detect: source => detector.detect(source) };
     }
 
     return createLocalDetector();
@@ -159,19 +185,30 @@ export const useMultiQRScanner = ({
         let isCancelled = false;
 
         const initializeDetector = async () => {
+            console.info(`${LOG_PREFIX} Initializing detector`, {
+                secureContext: window.isSecureContext,
+                nativeBarcodeDetector: Boolean(getNativeBarcodeDetector()),
+                userAgent: navigator.userAgent,
+            });
             try {
                 const detector = await createDetector();
                 if (isCancelled) return;
 
                 detectorRef.current = detector;
                 setIsSupported(true);
+                console.info(`${LOG_PREFIX} Detector ready`, { engine: detector.engine });
             } catch (err) {
                 if (isCancelled) return;
 
                 detectorRef.current = null;
                 setIsSupported(false);
                 setError('Barcode detection is not supported and local QR engine failed to load.');
-                console.error('MultiQR: Failed to initialize barcode detector', err);
+                console.error(`${LOG_PREFIX} Failed to initialize barcode detector`, {
+                    ...errorDetails(err),
+                    wasmUrl: zbarWasmUrl,
+                    online: navigator.onLine,
+                    secureContext: window.isSecureContext,
+                });
             }
         };
 
@@ -235,6 +272,13 @@ export const useMultiQRScanner = ({
                         height: { ideal: 720 }
                     };
 
+                console.info(`${LOG_PREFIX} Requesting camera`, {
+                    selection: deviceId ? 'deviceId' : 'facingMode',
+                    deviceId: deviceId ? `…${deviceId.slice(-6)}` : undefined,
+                    facingMode: deviceId ? undefined : facingMode,
+                    constraints: videoConstraints,
+                });
+
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: videoConstraints
                 });
@@ -288,6 +332,15 @@ export const useMultiQRScanner = ({
                 setActiveStream(stream);
                 setError('');
 
+                console.info(`${LOG_PREFIX} Camera ready`, {
+                    video: {
+                        width: video.videoWidth,
+                        height: video.videoHeight,
+                        readyState: video.readyState,
+                    },
+                    track: videoTrack?.getSettings(),
+                });
+
                 try {
                     const track = stream.getVideoTracks()[0];
                     const capabilities = track?.getCapabilities() as MediaTrackCapabilities & { torch?: boolean };
@@ -308,7 +361,11 @@ export const useMultiQRScanner = ({
                         : new Error('An unknown camera error occurred.');
 
                     clearCurrentStream();
-                    console.error('Error accessing webcam:', cameraError);
+                    console.error(`${LOG_PREFIX} Camera initialization failed`, {
+                        ...errorDetails(cameraError),
+                        selection: deviceId ? 'deviceId' : 'facingMode',
+                        secureContext: window.isSecureContext,
+                    });
                     setError(cameraError.message || 'Could not access webcam. Please verify permissions.');
                     try {
                         onCameraErrorRef.current?.(cameraError);
@@ -339,6 +396,8 @@ export const useMultiQRScanner = ({
         let animationFrameId: number;
         let lastDetectTime = 0;
         let isDetecting = false;
+        let hasLoggedDetectionStart = false;
+        let hasLoggedDetectionError = false;
 
         const detectCodes = async () => {
             const video = videoRef.current;
@@ -352,6 +411,15 @@ export const useMultiQRScanner = ({
             // Using readyState >= 2 (HAVE_CURRENT_DATA) to start scanning as soon as possible
             if (!isDetecting && now - lastDetectTime >= effectiveInterval) {
                 if (video.readyState >= 2 && video.videoWidth > 0) {
+                    if (!hasLoggedDetectionStart) {
+                        hasLoggedDetectionStart = true;
+                        console.info(`${LOG_PREFIX} Detection loop active`, {
+                            engine: detector.engine,
+                            width: video.videoWidth,
+                            height: video.videoHeight,
+                            intervalMs: effectiveInterval,
+                        });
+                    }
                     lastDetectTime = now;
                     isDetecting = true;
                     try {
@@ -360,9 +428,17 @@ export const useMultiQRScanner = ({
                             onCodesDetectedRef.current(barcodes);
                         }
                     } catch (err) {
-                        // Log only once to avoid spamming
-                        if (lastDetectTime === now) {
-                            console.error('MultiQR: Detection failed. Check if WASM/Native engine is ready.', err);
+                        if (!hasLoggedDetectionError) {
+                            hasLoggedDetectionError = true;
+                            console.error(`${LOG_PREFIX} Detection failed (further errors suppressed)`, {
+                                ...errorDetails(err),
+                                engine: detector.engine,
+                                video: {
+                                    width: video.videoWidth,
+                                    height: video.videoHeight,
+                                    readyState: video.readyState,
+                                },
+                            });
                         }
                     } finally {
                         isDetecting = false;
