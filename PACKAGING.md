@@ -71,20 +71,59 @@ Ví dụ sử dụng:
     ```
 
 ### Cách 3: Publish lên NPM
-1.  Đăng nhập NPM: `npm login`.
-2.  Publish: `npm publish`.
-3.  Trong dự án mới: `npm install multi-qr-scanner-poc`.
 
-## 4. Lưu ý về Dependencies
+Project dùng Vite 7, vì vậy hãy dùng đúng phiên bản Node được khai báo trong `.nvmrc`:
+
+```bash
+nvm install
+nvm use
+node --version
+```
+
+Sau đó thực hiện lần lượt:
+
+```bash
+# 1. Cài đúng dependencies từ package-lock.json
+npm ci
+
+# 2. Chạy kiểm tra và build thư viện
+npm run lint
+npm run build:lib
+
+# 3. Kiểm tra nội dung gói mà không publish
+npm pack --dry-run
+
+# 4. Đăng nhập và kiểm tra đúng tài khoản npm
+npm login
+npm whoami
+
+# 5. Publish phiên bản hiện tại
+npm publish --access public
+```
+
+Script `prepack` sẽ tự chạy lại lint và build trước khi đóng gói hoặc publish.
+
+Sau khi publish, kiểm tra phiên bản trên registry và thử cài trong project khác:
+
+```bash
+npm view multi-qr-scanner-poc version
+npm install multi-qr-scanner-poc@1.1.2
+```
+
+Với lần phát hành tiếp theo, tăng version trước khi commit:
+
+```bash
+npm version patch --no-git-tag-version
+```
 
 ## 5. Xử lý Lỗi Thường Gặp (Troubleshooting)
 
 ### Lỗi 403 Forbidden (2FA)
 Nếu gặp lỗi `Two-factor authentication... is required`:
-1.  Kiểm tra email hoặc ứng dụng Authenticator để lấy mã OTP mới.
+1.  Kiểm tra ứng dụng Authenticator để lấy mã OTP mới.
 2.  Chạy lệnh publish kèm cờ `--otp`:
     ```bash
-    npm publish --otp=123456
+    npm publish --access public --otp=123456
     ```
     *(Thay `123456` bằng mã của bạn)*
 
@@ -100,9 +139,22 @@ Nếu gặp lỗi `You cannot publish over the previously published versions: x.
 
 ### Lỗi Node.js Version
 Nếu gặp lỗi `Vite requires Node.js version 20.19+`:
-1.  Cài đặt hoặc chuyển sang Node.js version 20 trở lên (khuyên dùng `nvm`).
+1.  Cài đặt hoặc chuyển sang phiên bản Node trong `.nvmrc` (khuyên dùng `nvm`).
     ```bash
-    nvm install 20
-    nvm use 20
+    nvm install
+    nvm use
     ```
 
+### Lỗi quyền truy cập npm cache (`EACCES` hoặc `EPERM`)
+
+Nếu npm báo thư mục `~/.npm` chứa file thuộc quyền `root`, sửa quyền một lần rồi chạy lại:
+
+```bash
+sudo chown -R "$(id -u)":"$(id -g)" "$HOME/.npm"
+```
+
+Nếu chỉ muốn kiểm tra gói mà chưa sửa cache, có thể dùng cache tạm:
+
+```bash
+npm_config_cache=/tmp/multi-qr-npm-cache npm pack --dry-run
+```
